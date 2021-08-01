@@ -61,6 +61,7 @@ char** DisplayDeviceInformation(IEnumMoniker* pEnum)
       _bstr_t b(var.bstrVal);
       char* c = b;
       device_list[index] = c;
+      printf("%s\n", device_list[index]);
       VariantClear(&var);
       index++;
     }
@@ -95,7 +96,7 @@ Napi::Value enumerateDevice(const Napi::CallbackInfo& info)
   Napi::Env env = info.Env();
   HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 
-  napi_value device_list;
+  napi_value device_list = NULL;
   napi_status status = napi_create_array(env, &device_list);
   char** device_list_dummy = NULL;
 
@@ -119,13 +120,22 @@ Napi::Value enumerateDevice(const Napi::CallbackInfo& info)
   }
 
   int len = (int)(sizeof(device_list_dummy) / sizeof(device_list_dummy[0]));
+  printf("len: %d\n", len);
   for (int i = 0; i <= len; i++)
   {
-    napi_set_element(env, device_list, i, Napi::String::New(env, (const char*)device_list_dummy[i]));
+    printf("%d\n", i);
+    napi_value device_info;
+    printf("%d\n", i);
+    status = napi_create_object(env, &device_info);
+    printf("%d\n", i);
+    status = napi_set_named_property(env, device_info, "name", Napi::String::New(env, device_list_dummy[i]));
+    printf("%d\n", i);
+    status = napi_set_element(env, device_list, i, device_info);
+    printf("%d\n", i);
   }
   Napi::Function cb = info[0].As<Napi::Function>();
   cb.Call(env.Global(), { device_list });
-  free(device_list_dummy);
+  // free(device_list_dummy);
   return Napi::String::New(env, "enumerate device");
 }
 
