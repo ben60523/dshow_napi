@@ -1,3 +1,11 @@
-var {enumerateDevices} = require('bindings')('dshow_napi');
+var {enumerateDevices} = require('bindings')('dshow_api');
 
-module.exports = enumerateDevices
+const enumerate_devices = () => (new Promise((resolve, reject) => {
+  enumerateDevices((res) => {
+    if (res.length > 0)
+      resolve(res);
+    else reject()
+  })
+}))
+
+module.exports = {enumerate_devices}
