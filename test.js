@@ -1,7 +1,4 @@
-const {enumerate_devices} = require('./index');
+const {enumerateDevices} = require('./index');
 
-enumerate_devices().then((res) => {
-  console.log(res);
-}).catch(() => {
-  console.log("UnExpectedErrorCaught")
-})
+const arr = enumerateDevices();
+console.log(arr)

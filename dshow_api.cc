@@ -8,15 +8,27 @@
 #include <iostream>
 #include <stdio.h>
 #include <comdef.h>
+#include <string>
+#include <codecvt>
 
 #pragma comment(lib, "strmiids")
 
-HRESULT EnumerateDevices(REFGUID category, IEnumMoniker** ppEnum)
+std::string utf8_encode(const std::wstring &wstr)
+{
+    if( wstr.empty() ) return std::string();
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), NULL, 0, NULL, NULL);
+    std::string strTo( size_needed, 0 );
+    WideCharToMultiByte                  (CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
+    return strTo;
+}
+
+
+HRESULT EnumerateDevices(REFGUID category, IEnumMoniker **ppEnum)
 {
   // Create the System Device Enumerator.
-  ICreateDevEnum* pDevEnum;
+  ICreateDevEnum *pDevEnum;
   HRESULT hr = CoCreateInstance(CLSID_SystemDeviceEnum, NULL,
-    CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDevEnum));
+                                CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDevEnum));
 
   if (SUCCEEDED(hr))
   {
@@ -24,119 +36,91 @@ HRESULT EnumerateDevices(REFGUID category, IEnumMoniker** ppEnum)
     hr = pDevEnum->CreateClassEnumerator(category, ppEnum, 0);
     if (hr == S_FALSE)
     {
+      printf("ERROR WITH CreateClassEnumerator\n");
       hr = VFW_E_NOT_FOUND; // The category is empty. Treat as an error.
     }
     pDevEnum->Release();
   }
+  else
+  {
+    printf("ERROR WITH CoCreateInstance\n");
+  }
   return hr;
 }
 
-char** DisplayDeviceInformation(IEnumMoniker* pEnum)
-{
-  IMoniker* pMoniker = NULL;
-  char** device_list = (char**)malloc(1 * sizeof(char*));
-  int index = 0;
-  while (pEnum->Next(1, &pMoniker, NULL) == S_OK)
-  {
-    IPropertyBag* pPropBag;
-    HRESULT hr = pMoniker->BindToStorage(0, 0, IID_PPV_ARGS(&pPropBag));
-    if (FAILED(hr))
-    {
-      pMoniker->Release();
-      continue;
-    }
-
-    VARIANT var;
-    VariantInit(&var);
-
-    // Get description or friendly name.
-    hr = pPropBag->Read(L"Description", &var, 0);
-    if (FAILED(hr))
-    {
-      hr = pPropBag->Read(L"FriendlyName", &var, 0);
-    }
-    if (SUCCEEDED(hr))
-    {
-      device_list = (char**)realloc(device_list, (index + 1) * sizeof(char*));
-      _bstr_t b(var.bstrVal);
-      char* c = b;
-      device_list[index] = c;
-      printf("%s\n", device_list[index]);
-      VariantClear(&var);
-      index++;
-    }
-
-    // hr = pPropBag->Write(L"FriendlyName", &var);
-
-    // // WaveInID applies only to audio capture devices.
-    // hr = pPropBag->Read(L"WaveInID", &var, 0);
-    // if (SUCCEEDED(hr))
-    // {
-    //   printf("WaveIn ID: %d\n", var.lVal);
-    //   VariantClear(&var);
-    // }
-
-    // hr = pPropBag->Read(L"DevicePath", &var, 0);
-    // if (SUCCEEDED(hr))
-    // {
-    //   // The device path is not intended for display.
-    //   printf("Device path: %S\n", var.bstrVal);
-    //   VariantClear(&var);
-    // }
-
-    pPropBag->Release();
-    pMoniker->Release();
-  }
-
-  return device_list;
-}
-
-Napi::Value enumerateDevice(const Napi::CallbackInfo& info)
+Napi::Array enumerateDevice(const Napi::CallbackInfo &info)
 {
   Napi::Env env = info.Env();
   HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-
-  napi_value device_list = NULL;
-  napi_status status = napi_create_array(env, &device_list);
-  char** device_list_dummy = NULL;
-
+  napi_status status;
+  Napi::Array device_list = Napi::Array::New(env);
+  if (FAILED(hr))
+  {
+    CoUninitialize();
+    // Already initialized
+  }
+  IEnumMoniker *pEnum;
+  hr = EnumerateDevices(CLSID_AudioInputDeviceCategory, &pEnum);
   if (SUCCEEDED(hr))
   {
-    IEnumMoniker* pEnum;
-
-    // hr = EnumerateDevices(CLSID_VideoInputDeviceCategory, &pEnum);
-    // if (SUCCEEDED(hr))
-    // {
-    //   DisplayDeviceInformation(pEnum);
-    //   pEnum->Release();
-    // }
-    hr = EnumerateDevices(CLSID_AudioInputDeviceCategory, &pEnum);
-    if (SUCCEEDED(hr))
+    IMoniker *pMoniker = NULL;
+    int index = 0;
+    while (pEnum->Next(1, &pMoniker, NULL) == S_OK)
     {
-      device_list_dummy = DisplayDeviceInformation(pEnum);
-      pEnum->Release();
-    }
-    CoUninitialize();
-  }
+      IPropertyBag *pPropBag;
+      HRESULT hr = pMoniker->BindToStorage(0, 0, IID_PPV_ARGS(&pPropBag));
+      if (FAILED(hr))
+      {
+        printf("ERROR WITH BINDING STORAGE\n");
+        pMoniker->Release();
+        continue;
+      }
 
-  int len = (int)(sizeof(device_list_dummy) / sizeof(device_list_dummy[0]));
-  printf("len: %d\n", len);
-  for (int i = 0; i <= len; i++)
-  {
-    printf("%d\n", i);
-    napi_value device_info;
-    printf("%d\n", i);
-    status = napi_create_object(env, &device_info);
-    printf("%d\n", i);
-    status = napi_set_named_property(env, device_info, "name", Napi::String::New(env, device_list_dummy[i]));
-    printf("%d\n", i);
-    status = napi_set_element(env, device_list, i, device_info);
-    printf("%d\n", i);
+      VARIANT var;
+      VariantInit(&var);
+
+      // Get description or friendly name.
+      hr = pPropBag->Read(L"Description", &var, 0);
+      if (FAILED(hr))
+      {
+        hr = pPropBag->Read(L"FriendlyName", &var, 0);
+      }
+      if (SUCCEEDED(hr))
+      {
+        std::string c = utf8_encode(var.bstrVal);
+        // std::wstring_convert
+        status = napi_set_element(env, device_list, index, Napi::String::New(env, c));
+        index++;
+      }
+
+      // hr = pPropBag->Write(L"FriendlyName", &var);
+      // // WaveInID applies only to audio capture devices.
+      // hr = pPropBag->Read(L"WaveInID", &var, 0);
+      // if (SUCCEEDED(hr))
+      // {
+      //   printf("WaveIn ID: %d\n", var.lVal);
+      //   VariantClear(&var);
+      // }
+      // hr = pPropBag->Read(L"DevicePath", &var, 0);
+      // if (SUCCEEDED(hr))
+      // {
+      //   // The device path is not intended for display.
+      //   printf("Device path: %S\n", var.bstrVal);
+      //   VariantClear(&var);
+      // }
+
+      pPropBag->Release();
+      pMoniker->Release();
+    }
+    pEnum->Release();
   }
-  Napi::Function cb = info[0].As<Napi::Function>();
-  cb.Call(env.Global(), { device_list });
-  // free(device_list_dummy);
-  return Napi::String::New(env, "enumerate device");
+  else
+  {
+    printf("Error with \"EnumerateDevices\"\n");
+  }
+  CoUninitialize();
+
+  return device_list;
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports)

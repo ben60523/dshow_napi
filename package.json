@@ -12,7 +12,8 @@
     "node-gyp": "^6.1.0"
   },
   "scripts": {
-    "build": "node-gyp rebuild"
+    "build": "node-gyp rebuild",
+    "test": "node test.js"
   },
   "gypfile": true
 }

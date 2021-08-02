@@ -1,11 +1,3 @@
-var {enumerateDevices} = require('bindings')('dshow_api');
+var {enumerateDevices} = require('./build/Release/dshow_api.node');
 
-const enumerate_devices = () => (new Promise((resolve, reject) => {
-  enumerateDevices((res) => {
-    if (res.length > 0)
-      resolve(res);
-    else reject()
-  })
-}))
-
-module.exports = {enumerate_devices}
+module.exports = {enumerateDevices}
